@@ -11,23 +11,41 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 def _get_conn():
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL not configured")
-    return psycopg2.connect(DATABASE_URL)
+    # Ensure SSL for services like Railway when not specified in the URL
+    if "sslmode=" in (DATABASE_URL or ""):
+        return psycopg2.connect(DATABASE_URL)
+    return psycopg2.connect(DATABASE_URL, sslmode="require")
 
 
 def ensure_table():
     if not DATABASE_URL:
         return
-    sql = (
+    create_sql = (
         "CREATE TABLE IF NOT EXISTS guild_configs ("
         "guild_id TEXT PRIMARY KEY,"
-        "data JSONB NOT NULL"
+        "name TEXT,"
+        "data JSONB NOT NULL,"
+        "updated_at TIMESTAMPTZ"
         ")"
     )
+    alter_name = "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS name TEXT"
+    alter_updated = "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ"
+
     conn = _get_conn()
     try:
         with conn:
             with conn.cursor() as cur:
-                cur.execute(sql)
+                try:
+                    cur.execute(create_sql)
+                except Exception:
+                    # Best-effort: try to add missing columns if table already exists
+                    pass
+                try:
+                    cur.execute(alter_name)
+                    cur.execute(alter_updated)
+                except Exception:
+                    # Ignore - we'll still attempt other operations and let callers handle errors
+                    pass
     finally:
         conn.close()
 
