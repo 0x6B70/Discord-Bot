@@ -7,8 +7,6 @@ import dotenv
 dotenv.load_dotenv()
 
 
-
-
 class VCControl:
     def __init__(self, token: str | None = None):
         self.token = token

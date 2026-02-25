@@ -162,10 +162,13 @@ def save_guild_config(guild_id: str, cfg: dict):
 
 def save_raid_config(guild_id: str, cfg: dict):
     """Save a single raid config to its JSON file."""
+    # Save raid state alongside the other per-guild configs so it's available
+    # in the normal config directory (supports testing overrides via env).
     ensure_configs_dir()
     gid = str(guild_id)
     fname = gid + "_raid.json"
-    path = os.path.join( RAIDS_DIR, fname)
+    path = os.path.join(get_config_dir(), fname)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=4)
 
@@ -476,7 +479,7 @@ class VCSlashCommands(commands.Cog):
             f"Cleared all forum threads",
             ephemeral=True
         )
-        print(f"Cleanup command used by {interaction.user} in {interaction.guild.name} server. Deleted channels: {deleted_channels}, Deleted roles: {deleted_roles}")
+        print(f"Cleanup command used by {interaction.user.display_name} in {interaction.guild.name} server. Deleted channels: {deleted_channels}, Deleted roles: {deleted_roles}")
 
     # ------------------------------
     # Check verified command
@@ -590,7 +593,7 @@ class VCSlashCommands(commands.Cog):
                 ephemeral=True
             )
 
-        print(f"Check_verify command used by {interaction.user} in {interaction.guild.name} server")
+        print(f"Check_verify command used by {interaction.user.display_name} in {interaction.guild.name} server")
 
     @app_commands.command(
         name="setup_verify",
@@ -619,7 +622,7 @@ class VCSlashCommands(commands.Cog):
         }
 
         save_guild_config(str(interaction.guild.id), cfg)
-        print(f"Verification system configured for guild {interaction.guild.name} by {interaction.user}")
+        print(f"Verification system configured for guild {interaction.guild.name} by {interaction.user.display_name}")
 
     @app_commands.command(
         name="verify_user",
@@ -655,13 +658,13 @@ class VCSlashCommands(commands.Cog):
         verified_users = getattr(view, "selected_users", []) or []
 
         if not verified_users:
-            print(f"{interaction.user} completed verification UI with no selected users in {interaction.guild.name}")
+            print(f"{interaction.user.display_name} completed verification UI with no selected users in {interaction.guild.name}")
         else:
             try:
-                users_text = ", ".join(u for u in verified_users)
+                users_text = ", ".join(u.display_name for u in verified_users)
             except Exception:
                 users_text = ", ".join(getattr(u, "name", str(u)) for u in verified_users)
-            print(f"{interaction.user} has verified: {users_text} in {interaction.guild.name}")
+            print(f"{interaction.user.display_name} has verified: {users_text} in {interaction.guild.name}")
 
     @app_commands.command(
         name="remove_verify",
@@ -696,13 +699,13 @@ class VCSlashCommands(commands.Cog):
         unverified_users = getattr(view, "selected_users", []) or []
 
         if not unverified_users:
-            print(f"{interaction.user} completed unverification UI with no selected users in {interaction.guild.name}")
+            print(f"{interaction.user.display_name} completed unverification UI with no selected users in {interaction.guild.name}")
         else:
             try:
-                users_text = ", ".join(u for u in unverified_users)
+                users_text = ", ".join(u.display_name for u in unverified_users)
             except Exception:
                 users_text = ", ".join(getattr(u, "name", str(u)) for u in unverified_users)
-            print(f"{interaction.user} has unverified: {users_text} in {interaction.guild.name}")
+            print(f"{interaction.user.display_name} has unverified: {users_text} in {interaction.guild.name}")
 
     # ------------------------------
     # Send Thread Messages Command
@@ -764,16 +767,16 @@ class VCSlashCommands(commands.Cog):
         })
 
         save_guild_config(str(interaction.guild.id), cfg)
-        print(f"Raid roles configured for guild {interaction.guild.name} by {interaction.user}")
+        print(f"Raid roles configured for guild {interaction.guild.name} by {interaction.user.display_name}")
 
     async def raid_moving_task(self,guild: discord.Guild, cfg : dict):
         """Background task that monitors the raid."""
         try:
-            while os.path.exists(RAIDS_DIR + f"/{guild.id}_raid.json"):
-                # Your background task logic here
-                # Example: Monitor raid status, update roles, etc.
+            while os.path.exists(os.path.join(get_config_dir(), f"{guild.id}_raid.json")):
+            # Your background task logic here
+            # Example: Monitor raid status, update roles, etc.
                 await asyncio.sleep(5)  # Check every 5 seconds
-                if os.path.exists(RAIDS_DIR + f"/{guild.id}_raid.json"):
+                if os.path.exists(os.path.join(get_config_dir(), f"{guild.id}_raid.json")):
                     membersToMove=[]
                     moved_count=0
                     failed_count=0
@@ -790,8 +793,8 @@ class VCSlashCommands(commands.Cog):
                             failed_count += 1
                         except discord.HTTPException:
                             failed_count += 1
-            else:
-                print(f"raid in {guild.name} ended")
+                else:
+                    print(f"raid in {guild.name} ended")
 
 
 
@@ -808,7 +811,7 @@ class VCSlashCommands(commands.Cog):
             print(load_guild_config(str(interaction.guild.id), str(interaction.guild.name)).keys())
             rcfg= {"Raid Channel" : load_guild_config(str(interaction.guild.id), str(interaction.guild.name))["Raid Channel"],
                    "Raid roles" : load_guild_config(str(interaction.guild.id), str(interaction.guild.name))["Raid roles"]}
-            if not os.path.exists(RAIDS_DIR + f"/{str(interaction.guild.id)}_raid.json"):
+            if not os.path.exists(os.path.join(get_config_dir(), f"{str(interaction.guild.id)}_raid.json")):
                 view = RaidStartView(
                     invoker=interaction.user,
                     guild=interaction.guild
@@ -862,7 +865,7 @@ class VCSlashCommands(commands.Cog):
             print(f"Failed to start raid: {e}")
 
     async def load_raid(self,guild_id: str)->dict|None:
-        path=RAIDS_DIR + f"/{guild_id}_raid.json"
+        path = os.path.join(get_config_dir(), f"{guild_id}_raid.json")
         if os.path.exists(path):
             try:
                 with open(path, "r", encoding="utf-8") as f:
@@ -870,8 +873,7 @@ class VCSlashCommands(commands.Cog):
             except Exception as e:
                 print(e)
                 return None
-        else:
-            return None
+        return None
 
     @app_commands.command(
         name="raid_stop",
@@ -898,7 +900,7 @@ class VCSlashCommands(commands.Cog):
                     await guild.get_member(m).remove_roles(interaction.guild.get_role(rcfg["Raid roles"]["Scout Role"]))
                 for m in crcfg["back_up_lead"]:
                     await guild.get_member(m).remove_roles(interaction.guild.get_role(rcfg["Raid roles"]["Back-Up Role"]))
-                os.remove(RAIDS_DIR + f"/{guild_id}_raid.json")
+                os.remove(os.path.join(get_config_dir(), f"{guild_id}_raid.json"))
                 membersToMove = []
                 moved_count = 0
                 failed_count = 0
@@ -923,3 +925,37 @@ class VCSlashCommands(commands.Cog):
                 import traceback
                 traceback.print_exc()
                 print(e)
+    # ------------------------------
+    # Help Commands
+    # ------------------------------
+
+    @app_commands.command(
+        name="help_verify",
+        description="explains the verification commands"
+    )
+    @app_commands.default_permissions(manage_guild=True)
+    async def help_verify(self,interaction: discord.Interaction):
+        await interaction.response.send_message(
+            "Verification Commands:\n"
+            "/setup_verify - Configure the verification system for this server (set verified roles, guest role, log channel)\n"
+            "/verify_user - Assign the verified role to users through an interactive UI\n"
+            "/remove_verify - Remove the verified role from users through an interactive UI\n"
+            "/check_verified - Check which servers a user is verified in\n"
+            "Note: You must run /setup_verify before using the other verification commands.",
+            ephemeral=True
+        )
+
+    @app_commands.command(
+        name="help_raid",
+        description="explains the raid commands"
+    )
+    @app_commands.default_permissions(manage_guild=True)
+    async def help_raid(self,interaction: discord.Interaction):
+        await interaction.response.send_message(
+            "Raid Commands:\n"
+            "/setup_raid - Configure the raid roles and channel for this server\n"
+            "/raid_start - Start a raid by selecting channels to pull users from and assigning them roles\n"
+            "/raid_stop - Stop the current raid and optionally move users back to a specified channel\n"
+            "Note: You must run /setup_raid before using the other raid commands.",
+            ephemeral=True
+        )
